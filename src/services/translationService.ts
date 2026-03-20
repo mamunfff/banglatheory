@@ -6,8 +6,9 @@ let genAI: GoogleGenAI | null = null;
 function getGenAI() {
   if (!genAI) {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      console.error("GEMINI_API_KEY is missing. Translation will not work. If you have deployed this app, make sure to set the GEMINI_API_KEY environment variable.");
+    if (!apiKey || apiKey === 'undefined' || apiKey === '') {
+      console.error("GEMINI_API_KEY is missing or empty. Translation will not work.");
+      console.info("If you are seeing this on Vercel, ensure you have added GEMINI_API_KEY to your Environment Variables in the Vercel Dashboard and triggered a new deployment.");
       return null;
     }
     genAI = new GoogleGenAI({ apiKey });
@@ -15,14 +16,14 @@ function getGenAI() {
   return genAI;
 }
 
-const CACHE_KEY = 'driving_theory_translations';
+const CACHE_KEY = 'driving_theory_translations_v1';
 
 const getInitialCache = (): Record<string, Question> => {
   try {
     const saved = localStorage.getItem(CACHE_KEY);
     return saved ? JSON.parse(saved) : {};
   } catch (e) {
-    console.error("Failed to load translation cache:", e);
+    console.warn("Failed to load translation cache:", e);
     return {};
   }
 };
@@ -33,7 +34,8 @@ const saveCache = () => {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(translationCache));
   } catch (e) {
-    console.error("Failed to save translation cache:", e);
+    console.warn("Failed to save translation cache (likely storage full):", e);
+    // If storage is full, we might want to clear old entries, but for now we just log it
   }
 };
 
@@ -53,7 +55,8 @@ export const translationService = {
     if (!ai) return question;
 
     try {
-      const model = "gemini-3-flash-preview";
+      // Use gemini-flash-latest for better stability and performance
+      const model = "gemini-flash-latest";
       const response = await ai.models.generateContent({
         model,
         contents: `Translate the following UK Driving Theory Test content into clear, accurate, and natural Bengali.
@@ -69,6 +72,12 @@ export const translationService = {
           systemInstruction: "You are an expert translator specializing in the UK Highway Code and Driving Theory Test. Your goal is to translate English driving questions into Bengali that is technically accurate, easy to understand for learners, and culturally appropriate for the UK Bengali-speaking community. Avoid literal translations that lose meaning. Ensure driving-specific terms are translated correctly according to standard UK driving terminology. ALWAYS return a valid JSON object matching the schema.",
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           responseMimeType: "application/json",
+          safetySettings: [
+            { category: "HATE_SPEECH" as any, threshold: "BLOCK_NONE" as any },
+            { category: "SEXUALLY_EXPLICIT" as any, threshold: "BLOCK_NONE" as any },
+            { category: "HARASSMENT" as any, threshold: "BLOCK_NONE" as any },
+            { category: "DANGEROUS_CONTENT" as any, threshold: "BLOCK_NONE" as any },
+          ],
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -95,9 +104,17 @@ export const translationService = {
 
       // Handle potential markdown code blocks in response
       const jsonStr = text.replace(/^```json\n?/, '').replace(/\n?```$/, '');
-      const result = JSON.parse(jsonStr);
+      let result;
+      try {
+        result = JSON.parse(jsonStr);
+      } catch (parseError) {
+        console.error("Failed to parse Gemini response as JSON:", text);
+        throw parseError;
+      }
       
-      if (!result.text) throw new Error("Invalid translation result");
+      if (!result.text || !result.options || !result.explanation) {
+        throw new Error("Invalid translation result structure");
+      }
 
       const translatedQuestion = {
         ...question,
@@ -114,9 +131,20 @@ export const translationService = {
       saveCache();
       
       return translatedQuestion;
-    } catch (error) {
-      console.error(`Translation error (attempt ${retryCount + 1}):`, error);
+    } catch (error: any) {
+      const errorMessage = error?.message || String(error);
+      console.error(`Translation error for question ${question.id} (attempt ${retryCount + 1}):`, error);
       
+      // Check for rate limit (429)
+      if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('rate limit')) {
+        console.warn("Gemini API rate limit reached. Retrying with longer delay...");
+        if (retryCount < 3) {
+          // Longer delay for rate limits
+          await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
+          return this.translateQuestion(question, retryCount + 1);
+        }
+      }
+
       if (retryCount < 2) {
         // Wait before retrying (exponential backoff)
         await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));

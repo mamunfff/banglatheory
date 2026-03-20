@@ -42,7 +42,7 @@ export const Practice: React.FC = () => {
   const nextQuestion = filteredQuestions[currentIndex + 1];
 
   useEffect(() => {
-    if (nextQuestion && language === 'bn' && nextQuestion.text.bn === nextQuestion.text.en) {
+    if (nextQuestion && (language === 'bn' || language === 'bilingual') && nextQuestion.text.bn === nextQuestion.text.en) {
       // Pre-translate the next question in the background
       import('../services/translationService').then(({ translationService }) => {
         translationService.translateQuestion(nextQuestion).catch(console.error);
@@ -115,6 +115,9 @@ export const Practice: React.FC = () => {
       const q = filteredQuestions[i];
       if (q.text.bn === q.text.en) {
         await translationService.translateQuestion(q);
+        // Add a small delay between requests to avoid rate limits (15 RPM is ~4s per request)
+        // We'll use a 500ms delay as a baseline, but the service also has retries
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
       setCacheProgress(Math.round(((i + 1) / total) * 100));
     }
