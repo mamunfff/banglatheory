@@ -116,6 +116,24 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             <p className="text-sm font-bold text-primary font-bengali">অনুবাদ করা হচ্ছে...</p>
           </div>
         )}
+
+        {question._translationError && (
+          <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-2xl mb-4 flex items-start gap-3">
+            <XCircle className="text-destructive shrink-0" size={20} />
+            <div className="text-xs space-y-1">
+              <p className="font-bold text-destructive">
+                {question._translationError === 'API_KEY_MISSING' 
+                  ? 'Translation Error: API Key Missing' 
+                  : 'Translation Error: API Request Failed'}
+              </p>
+              <p className="text-destructive/80">
+                {question._translationError === 'API_KEY_MISSING'
+                  ? 'Please add GEMINI_API_KEY to your environment variables and redeploy.'
+                  : 'The translation service is currently unavailable. Please try again later.'}
+              </p>
+            </div>
+          </div>
+        )}
         
         <h3 className="tracking-tight text-foreground">
           {renderText(question.text, true)}

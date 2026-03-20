@@ -52,11 +52,26 @@ export const translationService = {
     }
 
     const ai = getGenAI();
-    if (!ai) return question;
+    if (!ai) {
+      // Return a special error state if API key is missing
+      return {
+        ...question,
+        _translationError: 'API_KEY_MISSING'
+      } as any;
+    }
 
     try {
-      // Use gemini-flash-latest for better stability and performance
-      const model = "gemini-flash-latest";
+      // Use gemini-3-flash-preview for basic text tasks as recommended
+      const model = "gemini-3-flash-preview";
+      
+      // Dynamically build the options schema based on the question's options
+      const optionsProperties: Record<string, any> = {};
+      const requiredOptions: string[] = [];
+      question.options.forEach(o => {
+        optionsProperties[o.id] = { type: Type.STRING };
+        requiredOptions.push(o.id);
+      });
+
       const response = await ai.models.generateContent({
         model,
         contents: `Translate the following UK Driving Theory Test content into clear, accurate, and natural Bengali.
@@ -84,13 +99,8 @@ export const translationService = {
               text: { type: Type.STRING, description: "The Bengali translation of the question" },
               options: {
                 type: Type.OBJECT,
-                properties: {
-                  a: { type: Type.STRING },
-                  b: { type: Type.STRING },
-                  c: { type: Type.STRING },
-                  d: { type: Type.STRING },
-                  e: { type: Type.STRING }
-                }
+                properties: optionsProperties,
+                required: requiredOptions
               },
               explanation: { type: Type.STRING, description: "The Bengali translation of the explanation" }
             },
@@ -137,21 +147,21 @@ export const translationService = {
       
       // Check for rate limit (429)
       if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('rate limit')) {
-        console.warn("Gemini API rate limit reached. Retrying with longer delay...");
         if (retryCount < 3) {
-          // Longer delay for rate limits
           await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)));
           return this.translateQuestion(question, retryCount + 1);
         }
       }
 
       if (retryCount < 2) {
-        // Wait before retrying (exponential backoff)
         await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
         return this.translateQuestion(question, retryCount + 1);
       }
       
-      return question;
+      return {
+        ...question,
+        _translationError: 'API_ERROR'
+      } as any;
     }
   }
 };

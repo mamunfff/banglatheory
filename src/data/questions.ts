@@ -22,6 +22,7 @@ export interface Question {
     bn: string;
   };
   imageUrl?: string;
+  _translationError?: 'API_KEY_MISSING' | 'API_ERROR';
 }
 
 export const categories = [
